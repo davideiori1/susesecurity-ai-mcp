@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"mcp/internal/tools"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rancher/dynamiclistener"
 	"github.com/rancher/dynamiclistener/server"
@@ -15,7 +17,6 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/rest"
-	"mcp/internal/tools"
 )
 
 const (
@@ -112,6 +113,15 @@ func main() {
 		Parameters:
 		clusters (array of strings): List of clusters to get images from. Empty for return images for all clusters.`},
 		tools.GetClusterImages)
+	// --- SUSE SECURITY TOOLS ---
+	mcp.AddTool(mcpServer, &mcp.Tool{
+		Name: "getVulnerabilityWorkloadSummary",
+		Description: `Get a high-level vulnerability summary (Critical/High counts) for a specific workload.
+		Parameters:
+		name (string, required): The name of the deployment/pod.
+		namespace (string, required): The namespace of the workload.
+		cluster (string, required): The cluster name.`,
+	}, tools.GetVulnerabilityWorkloadSummary)
 
 	handler := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return mcpServer

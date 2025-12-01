@@ -80,4 +80,7 @@ var K8sKindsToGVRs = map[string]schema.GroupVersionResource{
 
 	// --- RANCHER CATTLE Resources (Group: "cattle.io") ---
 	"setting": {Group: "management.cattle.io", Version: "v3", Resource: "settings"},
+
+	// --- SBOMSCANNER Resources (Group: "cattle.io") ---
+	"vulnerabilityreport": {Group: "storage.sbomscanner.kubewarden.io", Version: "v1alpha1", Resource: "vulnerabilityreports"},
 }

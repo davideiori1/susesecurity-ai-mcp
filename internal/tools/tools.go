@@ -369,60 +369,6 @@ func (t *Tools) InspectPod(ctx context.Context, toolReq *mcp.CallToolRequest, pa
 	}, nil, nil
 }
 
-// GetDeploymentDetails retrieves details about a deployment and its associated pods.
-func (t *Tools) GetDeploymentDetails(ctx context.Context, toolReq *mcp.CallToolRequest, params SpecificResourceParams) (*mcp.CallToolResult, any, error) {
-	zap.L().Debug("getDeploymentDetails called")
-
-	deploymentResource, err := t.getResource(ctx, GetParams{
-		Cluster:   params.Cluster,
-		Kind:      "deployment",
-		Namespace: params.Namespace,
-		Name:      params.Name,
-		URL:       toolReq.Extra.Header.Get(urlHeader),
-		Token:     toolReq.Extra.Header.Get(tokenHeader),
-	})
-	if err != nil {
-		zap.L().Error("failed to get deployment", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
-		return nil, nil, err
-	}
-
-	var deployment appsv1.Deployment
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(deploymentResource.Object, &deployment); err != nil {
-		zap.L().Error("failed convert unstructured object to Deployment", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
-		return nil, nil, fmt.Errorf("failed to convert unstructured object to Pod: %w", err)
-	}
-
-	// find all pods for this deployment
-	selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
-	if err != nil {
-		zap.L().Error("failed create label selector", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
-		return nil, nil, fmt.Errorf("failed to convert label selector: %w", err)
-	}
-	pods, err := t.getResources(ctx, ListParams{
-		Cluster:       params.Cluster,
-		Kind:          "pod",
-		Namespace:     params.Namespace,
-		Name:          params.Name,
-		URL:           toolReq.Extra.Header.Get(urlHeader),
-		Token:         toolReq.Extra.Header.Get(tokenHeader),
-		LabelSelector: selector.String(),
-	})
-	if err != nil {
-		zap.L().Error("failed to get pods", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
-		return nil, nil, fmt.Errorf("failed to get pods: %w", err)
-	}
-
-	mcpResponse, err := response.CreateMcpResponse(append([]*unstructured.Unstructured{deploymentResource}, pods...), params.Cluster)
-	if err != nil {
-		zap.L().Error("failed to create mcp response", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
-		return nil, nil, err
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: mcpResponse}},
-	}, nil, nil
-}
-
 // GetNodes retrieves information and metrics for all nodes in a given cluster.
 func (t *Tools) GetNodes(ctx context.Context, toolReq *mcp.CallToolRequest, params GetNodesParams) (*mcp.CallToolResult, any, error) {
 	zap.L().Debug("getNodes called")
@@ -584,4 +530,172 @@ func (t *Tools) getResources(ctx context.Context, params ListParams) ([]*unstruc
 	}
 
 	return objs, err
+}
+
+// GetDeploymentDetails retrieves details about a deployment and its associated pods.
+func (t *Tools) GetDeploymentDetails(ctx context.Context, toolReq *mcp.CallToolRequest, params SpecificResourceParams) (*mcp.CallToolResult, any, error) {
+	zap.L().Debug("getDeploymentDetails called")
+
+	deploymentResource, err := t.getResource(ctx, GetParams{
+		Cluster:   params.Cluster,
+		Kind:      "deployment",
+		Namespace: params.Namespace,
+		Name:      params.Name,
+		URL:       toolReq.Extra.Header.Get(urlHeader),
+		Token:     toolReq.Extra.Header.Get(tokenHeader),
+	})
+	if err != nil {
+		zap.L().Error("failed to get deployment", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
+		return nil, nil, err
+	}
+
+	var deployment appsv1.Deployment
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(deploymentResource.Object, &deployment); err != nil {
+		zap.L().Error("failed convert unstructured object to Deployment", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
+		return nil, nil, fmt.Errorf("failed to convert unstructured object to Pod: %w", err)
+	}
+
+	// find all pods for this deployment
+	selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+	if err != nil {
+		zap.L().Error("failed create label selector", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
+		return nil, nil, fmt.Errorf("failed to convert label selector: %w", err)
+	}
+	pods, err := t.getResources(ctx, ListParams{
+		Cluster:       params.Cluster,
+		Kind:          "pod",
+		Namespace:     params.Namespace,
+		Name:          params.Name,
+		URL:           toolReq.Extra.Header.Get(urlHeader),
+		Token:         toolReq.Extra.Header.Get(tokenHeader),
+		LabelSelector: selector.String(),
+	})
+	if err != nil {
+		zap.L().Error("failed to get pods", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
+		return nil, nil, fmt.Errorf("failed to get pods: %w", err)
+	}
+
+	mcpResponse, err := response.CreateMcpResponse(append([]*unstructured.Unstructured{deploymentResource}, pods...), params.Cluster)
+	if err != nil {
+		zap.L().Error("failed to create mcp response", zap.String("tool", "getDeploymentDetails"), zap.Error(err))
+		return nil, nil, err
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: mcpResponse}},
+	}, nil, nil
+}
+
+// GetVulnerabilityWorkloadSummary: Returns the high-level Critical/High/Medium counts
+func (t *Tools) GetVulnerabilityWorkloadSummary(ctx context.Context, toolReq *mcp.CallToolRequest, params ResourceParams) (*mcp.CallToolResult, any, error) {
+	zap.L().Debug("getVulnerabilityWorkloadSummary called")
+
+	// 1. Find the Vulnerability Report for this workload
+	report, err := t.findReportForWorkload(ctx, toolReq, params.Name, params.Namespace, params.Cluster)
+	if err != nil {
+		zap.L().Error("failed to get vulnerability report", zap.String("tool", "getVulnerabilityWorkloadSummary"), zap.Error(err))
+		return nil, nil, err
+	}
+
+	// 2. Extract Summary from the CRD JSON path: .report.summary
+	summary, found, _ := unstructured.NestedMap(report.Object, "report", "summary")
+	if !found {
+		err := fmt.Errorf("report found, but summary field is missing")
+		zap.L().Error("invalid report structure", zap.String("tool", "getVulnerabilityWorkloadSummary"), zap.Error(err))
+		return nil, nil, err
+	}
+
+	// 3. Format the text response
+	result := fmt.Sprintf(
+		"Security Scan Summary for %s:\n- Critical: %v\n- High: %v\n- Medium: %v\n- Low: %v\n- Unknown: %v",
+		params.Name,
+		summary["critical"],
+		summary["high"],
+		summary["medium"],
+		summary["low"],
+		summary["unknown"],
+	)
+
+	// return mcp.NewToolResultText(result), nil
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(result)}},
+	}, nil, nil
+}
+
+// --- Helper: Find the Report by matching Pod Image ---
+
+func (t *Tools) findReportForWorkload(ctx context.Context, req *mcp.CallToolRequest, workload, namespace, cluster string) (*unstructured.Unstructured, error) {
+	// A. Get the Pods for this workload to find the running image SHA
+	// We reuse your existing 'ListKubernetesResources' logic indirectly by calling getResources
+	pods, err := t.getResources(ctx, ListParams{
+		Cluster:   cluster,
+		Kind:      "pod",
+		Namespace: namespace,
+		URL:       req.Extra.Header.Get(urlHeader),
+		Token:     req.Extra.Header.Get(tokenHeader),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	var targetImageDigest string
+
+	// Find a pod that matches the workload name
+	for _, pod := range pods {
+		if strings.HasPrefix(pod.GetName(), workload) {
+
+			// IMPROVEMENT: Check ALL containers, not just the first one [0].
+			// This handles sidecars (Istio) or InitContainers.
+			statuses, found, _ := unstructured.NestedSlice(pod.Object, "status", "containerStatuses")
+			if found {
+				for _, s := range statuses {
+					status := s.(map[string]interface{})
+
+					// Option: If you want to be very specific, check if status["name"] == workload
+					// For now, we just grab the first valid SHA we find, which is safer than hardcoding [0]
+					imageID, _, _ := unstructured.NestedString(status, "imageID")
+
+					if strings.Contains(imageID, "sha256:") {
+						if idx := strings.LastIndex(imageID, "sha256:"); idx != -1 {
+							targetImageDigest = imageID[idx+7:] // Extract just the hash part
+							break                               // Found a valid SHA, break the inner loop
+						}
+					}
+				}
+			}
+		}
+		if targetImageDigest != "" {
+			break // Found our target pod, break the outer loop
+		}
+	}
+
+	if targetImageDigest == "" {
+		return nil, fmt.Errorf("could not determine running image SHA for workload %s", workload)
+	}
+
+	zap.L().Info("Looking for report matching digest", zap.String("digest", targetImageDigest))
+
+	// B. List all VulnerabilityReports
+	// NOTE: Ensure "vulnerabilityreport" is added to internal/tools/converter/grv.go!
+	reports, err := t.getResources(ctx, ListParams{
+		Cluster:   cluster,
+		Kind:      "vulnerabilityreport",
+		Namespace: namespace,
+		URL:       req.Extra.Header.Get(urlHeader),
+		Token:     req.Extra.Header.Get(tokenHeader),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list vulnerability reports: %w", err)
+	}
+
+	// C. Find the report that matches our digest
+	// Based on your CRD file, the digest is at the root: .imageMetadata.digest
+	for _, report := range reports {
+		digest, found, _ := unstructured.NestedString(report.Object, "imageMetadata", "digest")
+		if found && strings.Contains(digest, targetImageDigest) {
+			return report, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no vulnerability report found for image digest %s", targetImageDigest)
 }
