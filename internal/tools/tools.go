@@ -131,6 +131,15 @@ func NewTools() *Tools {
 	}
 }
 
+// Define the extra filters for the vulnerability reports
+type VulnerabilityScanParams struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Cluster   string `json:"cluster"`
+	Severity  string `json:"severity,omitempty"` // Optional: e.g., "Critical", "High"
+	CVE       string `json:"cve_id,omitempty"`   // Optional: e.g., "CVE-2025-1234"
+}
+
 // GetResource retrieves a specific Kubernetes resource based on the provided parameters.
 func (t *Tools) GetResource(ctx context.Context, toolReq *mcp.CallToolRequest, params ResourceParams) (*mcp.CallToolResult, any, error) {
 	zap.L().Debug("getKubernetesResource called")
@@ -628,8 +637,102 @@ func (t *Tools) GetVulnerabilityWorkloadSummary(ctx context.Context, toolReq *mc
 	}, nil, nil
 }
 
-// --- Helper: Find the Report by matching Pod Image ---
+// GetVulnerabilityList: Returns a filtered list of vulnerabilities
+func (t *Tools) GetVulnerabilityList(ctx context.Context, toolReq *mcp.CallToolRequest, params VulnerabilityScanParams) (*mcp.CallToolResult, any, error) {
+	zap.L().Info("getVulnerabilityList called",
+		zap.String("workload", params.Name),
+		zap.String("severity_filter", params.Severity),
+		zap.String("cve_filter", params.CVE))
 
+	// 1. Reuse the helper to find the Report
+	report, err := t.findReportForWorkload(ctx, toolReq, params.Name, params.Namespace, params.Cluster)
+	if err != nil {
+		zap.L().Error("failed to get vulnerability report", zap.String("tool", "getVulnerabilityWorkloadSummary"), zap.Error(err))
+		return nil, nil, err
+	}
+
+	// 2. Extract the "results" list (where the vulnerabilities are stored)
+	results, found, _ := unstructured.NestedSlice(report.Object, "report", "results")
+	if !found {
+		err := fmt.Errorf("report found, but results field is missing.")
+		zap.L().Error("invalid report structure", zap.String("tool", "getVulnerabilityList"), zap.Error(err))
+		return nil, nil, err
+	}
+
+	var matchedVulns []string
+	foundSpecificCVE := false
+
+	// 3. Iterate through all results (OS packages, Language binaries, etc.)
+	for _, res := range results {
+		resultMap, ok := res.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		vulns, found, _ := unstructured.NestedSlice(resultMap, "vulnerabilities")
+		if !found {
+			continue
+		}
+
+		for _, v := range vulns {
+			vuln, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			vulnID, _, _ := unstructured.NestedString(vuln, "vulnerabilityID") // e.g. CVE-2025-22869
+			vulnSev, _, _ := unstructured.NestedString(vuln, "severity")       // e.g. HIGH
+			pkgName, _, _ := unstructured.NestedString(vuln, "pkgName")
+			installed, _, _ := unstructured.NestedString(vuln, "installedVersion")
+			fixed, _, _ := unstructured.NestedString(vuln, "fixedVersions")
+
+			// FILTER 1: Specific CVE Check
+			if params.CVE != "" {
+				if strings.EqualFold(vulnID, params.CVE) {
+					foundSpecificCVE = true
+					matchedVulns = append(matchedVulns, fmt.Sprintf("• FOUND %s (%s) in package %s (Current: %s, Fixed: %s)", vulnID, vulnSev, pkgName, installed, fixed))
+				}
+				continue // If searching for specific CVE, skip other checks
+			}
+
+			// FILTER 2: Severity Check
+			if params.Severity != "" {
+				if !strings.EqualFold(vulnSev, params.Severity) {
+					continue
+				}
+			}
+
+			// Add to list
+			matchedVulns = append(matchedVulns, fmt.Sprintf("| %s | %s | %s | %s |", vulnID, vulnSev, pkgName, fixed))
+		}
+	}
+
+	// 4. Construct the Final Output
+	var response string
+
+	// Case A: User asked "Has CVE-123 been found?"
+	if params.CVE != "" {
+		if foundSpecificCVE {
+			response = fmt.Sprintf("YES. %s was found in workload %s:\n%s", params.CVE, params.Name, strings.Join(matchedVulns, "\n"))
+		} else {
+			response = fmt.Sprintf("NO. %s was NOT found in workload %s.", params.CVE, params.Name)
+		}
+	} else {
+		// Case B: User asked "List all/high vulnerabilities"
+		if len(matchedVulns) > 0 {
+			header := fmt.Sprintf("Vulnerabilities for %s (Filter: %s):\n| ID | Severity | Package | Fixed Version |\n|---|---|---|---|\n", params.Name, params.Severity)
+			response = header + strings.Join(matchedVulns, "\n")
+		} else {
+			response = fmt.Sprintf("No vulnerabilities found for %s matching your criteria.", params.Name)
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: response}},
+	}, nil, nil
+}
+
+// --- Helper: Find the Report by matching Pod Image ---
 func (t *Tools) findReportForWorkload(ctx context.Context, req *mcp.CallToolRequest, workload, namespace, cluster string) (*unstructured.Unstructured, error) {
 	// A. Get the Pods for this workload to find the running image SHA
 	// We reuse your existing 'ListKubernetesResources' logic indirectly by calling getResources

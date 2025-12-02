@@ -123,6 +123,22 @@ func main() {
 		cluster (string, required): The cluster name.`,
 	}, tools.GetVulnerabilityWorkloadSummary)
 
+	mcp.AddTool(mcpServer, &mcp.Tool{
+		Name: "getVulnerabilityList",
+		Description: `List specific vulnerabilities for a workload. Can filter by severity or check for a specific CVE.
+		Use this when the user asks:
+		- "List all vulnerabilities"
+		- "List high severity vulnerabilities"
+		- "Has CVE-1234-5678 been found?"
+		
+		Parameters:
+		name (string, required): The name of the workload/pod.
+		namespace (string, required): The namespace.
+		cluster (string, required): The cluster name.
+		severity (string, optional): Filter by severity (e.g., "CRITICAL", "HIGH", "MEDIUM").
+		cve_id (string, optional): Check for a specific CVE ID (e.g., "CVE-2023-1234").`,
+	}, tools.GetVulnerabilityList)
+
 	handler := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{})
