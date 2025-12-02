@@ -791,7 +791,7 @@ func (t *Tools) GetVulnerabilityStats(ctx context.Context, toolReq *mcp.CallTool
 			reportIndex[digest] = summary
 		}
 	}
-	zap.L().Debug("indexed reports", zap.Int("index_size", len(reportIndex))) // <--- Log Index Size
+	zap.L().Info("indexed reports", zap.Int("index_size", len(reportIndex))) // <--- Log Index Size
 
 	// 3. Fetch Pods (Filtered by Namespace if provided, or All if empty)
 	pods, err := t.getResources(ctx, ListParams{
@@ -829,6 +829,8 @@ func (t *Tools) GetVulnerabilityStats(ctx context.Context, toolReq *mcp.CallTool
 		if workloadName == "" {
 			workloadName = pod.GetName()
 		}
+
+		zap.L().Info("workload found", zap.String("workload name", workloadName))
 
 		key := fmt.Sprintf("%s/%s", ns, workloadName)
 
