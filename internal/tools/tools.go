@@ -590,6 +590,12 @@ func (t *Tools) GetDeploymentDetails(ctx context.Context, toolReq *mcp.CallToolR
 func (t *Tools) GetVulnerabilityWorkloadSummary(ctx context.Context, toolReq *mcp.CallToolRequest, params ResourceParams) (*mcp.CallToolResult, any, error) {
 	zap.L().Debug("getVulnerabilityWorkloadSummary called")
 
+	zap.L().Info("calling findReportForWorkload with parameters",
+		zap.String("workload_name", params.Name),
+		zap.String("namespace", params.Namespace),
+		zap.String("cluster", params.Cluster),
+	)
+
 	// 1. Find the Vulnerability Report for this workload
 	report, err := t.findReportForWorkload(ctx, toolReq, params.Name, params.Namespace, params.Cluster)
 	if err != nil {
