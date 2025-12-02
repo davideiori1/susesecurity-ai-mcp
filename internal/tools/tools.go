@@ -686,11 +686,15 @@ func (t *Tools) GetVulnerabilityList(ctx context.Context, toolReq *mcp.CallToolR
 				continue
 			}
 
-			vulnID, _, _ := unstructured.NestedString(vuln, "vulnerabilityID") // e.g. CVE-2025-22869
-			vulnSev, _, _ := unstructured.NestedString(vuln, "")               // e.g. HIGH
-			pkgName, _, _ := unstructured.NestedString(vuln, "pkgName")
+			vulnID, _, _ := unstructured.NestedString(vuln, "cve")       // e.g. CVE-2025-22869
+			vulnSev, _, _ := unstructured.NestedString(vuln, "severity") // e.g. HIGH
+			pkgName, _, _ := unstructured.NestedString(vuln, "packageName")
 			installed, _, _ := unstructured.NestedString(vuln, "installedVersion")
-			fixed, _, _ := unstructured.NestedString(vuln, "fixedVersions")
+			fixedList, _, _ := unstructured.NestedStringSlice(vuln, "fixedVersions")
+			fixed := strings.Join(fixedList, ", ")
+			if fixed == "" {
+				fixed = "None"
+			}
 
 			zap.L().Info("vulnerability found",
 				zap.String("vulnerabilityID", vulnID),

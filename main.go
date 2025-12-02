@@ -135,7 +135,7 @@ func main() {
 		name (string, required): The name of the workload/pod.
 		namespace (string, required): The namespace.
 		cluster (string, required): The cluster name.
-		severity (string, optional): Filter by severity (e.g., "CRITICAL", "HIGH", "MEDIUM").
+		severity (string, optional): Filter by severity (e.g., "Crtiical", "High", "Medium").
 		cve_id (string, optional): Check for a specific CVE ID (e.g., "CVE-2023-1234").`,
 	}, tools.GetVulnerabilityList)
 
