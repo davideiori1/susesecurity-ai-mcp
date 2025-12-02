@@ -140,6 +140,11 @@ type VulnerabilityScanParams struct {
 	CVE       string `json:"cve_id,omitempty"`   // Optional: e.g., "CVE-2025-1234"
 }
 
+type VulnerabilityStatsParams struct {
+	Namespace string `json:"namespace,omitempty"` // Optional: If empty, scans whole cluster
+	Cluster   string `json:"cluster"`
+}
+
 // GetResource retrieves a specific Kubernetes resource based on the provided parameters.
 func (t *Tools) GetResource(ctx context.Context, toolReq *mcp.CallToolRequest, params ResourceParams) (*mcp.CallToolResult, any, error) {
 	zap.L().Debug("getKubernetesResource called")
@@ -746,6 +751,168 @@ func (t *Tools) GetVulnerabilityList(ctx context.Context, toolReq *mcp.CallToolR
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: response}},
+	}, nil, nil
+}
+
+// GetVulnerabilityStats: Unified tool for Namespace AND Cluster-wide scans
+func (t *Tools) GetVulnerabilityStats(ctx context.Context, toolReq *mcp.CallToolRequest, params VulnerabilityStatsParams) (*mcp.CallToolResult, any, error) {
+	// Log the mode we are running in
+	if params.Namespace == "" {
+		zap.L().Info("getVulnerabilityStats called (Cluster-Wide)", zap.String("cluster", params.Cluster))
+	} else {
+		zap.L().Info("getVulnerabilityStats called (Namespace-Scoped)", zap.String("namespace", params.Namespace))
+	}
+
+	// 1. Fetch VulnerabilityReports (Batch Fetch)
+	// If params.Namespace is "", this helper automatically lists resources from ALL namespaces
+	reports, err := t.getResources(ctx, ListParams{
+		Cluster:   params.Cluster,
+		Kind:      "vulnerabilityreport",
+		Namespace: params.Namespace,
+		URL:       toolReq.Extra.Header.Get(urlHeader),
+		Token:     toolReq.Extra.Header.Get(tokenHeader),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list reports: %w", err)
+	}
+	zap.L().Info("fetched vulnerability reports", zap.Int("count", len(reports))) // <--- Log Count
+
+	// 2. Index Reports by Digest for fast O(1) lookup
+	// We reuse the exact same field structure as your existing tool: .imageMetadata.digest and .report.summary
+	reportIndex := make(map[string]map[string]interface{})
+	for _, report := range reports {
+		digest, found, _ := unstructured.NestedString(report.Object, "imageMetadata", "digest")
+		if !found {
+			continue
+		}
+
+		summary, found, _ := unstructured.NestedMap(report.Object, "report", "summary")
+		if found {
+			reportIndex[digest] = summary
+		}
+	}
+	zap.L().Debug("indexed reports", zap.Int("index_size", len(reportIndex))) // <--- Log Index Size
+
+	// 3. Fetch Pods (Filtered by Namespace if provided, or All if empty)
+	pods, err := t.getResources(ctx, ListParams{
+		Cluster:   params.Cluster,
+		Kind:      "pod",
+		Namespace: params.Namespace,
+		URL:       toolReq.Extra.Header.Get(urlHeader),
+		Token:     toolReq.Extra.Header.Get(tokenHeader),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+	zap.L().Info("fetched pods", zap.Int("count", len(pods))) // <--- Log Count
+
+	// 4. Aggregate Stats
+	type WorkloadStats struct {
+		Namespace string
+		Critical  int64
+		High      int64
+		Medium    int64
+	}
+	// Key = "namespace/workloadName" to ensure uniqueness across namespaces
+	workloadVulns := make(map[string]WorkloadStats)
+	podsMatched := 0 // Counter for debugging
+
+	for _, pod := range pods {
+		ns := pod.GetNamespace()
+		labels := pod.GetLabels()
+
+		// Logic to determine the Workload Name (matching your standard approach)
+		workloadName := labels["app.kubernetes.io/name"]
+		if workloadName == "" {
+			workloadName = labels["app"]
+		}
+		if workloadName == "" {
+			workloadName = pod.GetName()
+		}
+
+		key := fmt.Sprintf("%s/%s", ns, workloadName)
+
+		// Skip if already processed (deduplication of replicas)
+		if _, exists := workloadVulns[key]; exists {
+			continue
+		}
+
+		// Match Container Images to Reports
+		statuses, found, _ := unstructured.NestedSlice(pod.Object, "status", "containerStatuses")
+		if !found {
+			continue
+		}
+
+		for _, s := range statuses {
+			status, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			imageID, _, _ := unstructured.NestedString(status, "imageID")
+			// Extract SHA: "docker-pullable://...@sha256:<hash>" -> "<hash>"
+			if idx := strings.LastIndex(imageID, "sha256:"); idx != -1 {
+				sha := imageID[idx+7:]
+
+				if summary, exists := reportIndex[sha]; exists {
+
+					podsMatched++
+
+					stats := workloadVulns[key]
+					stats.Namespace = ns
+
+					// Reuse the same field extraction logic as GetVulnerabilityWorkloadSummary
+					crit, _ := summary["critical"].(int64)
+					high, _ := summary["high"].(int64)
+					med, _ := summary["medium"].(int64)
+
+					stats.Critical += crit
+					stats.High += high
+					stats.Medium += med
+
+					workloadVulns[key] = stats
+				} else {
+					// Useful log: Pod found, but no scan report yet
+					zap.L().Debug("no report found for image", zap.String("pod", pod.GetName()), zap.String("sha", sha))
+				}
+			}
+		}
+	}
+
+	zap.L().Info("aggregation complete",
+		zap.Int("matched_pods", podsMatched),
+		zap.Int("unique_workloads", len(workloadVulns))) // <--- Final Stat Log
+
+	// 5. Build Output Table
+	var sb strings.Builder
+	title := fmt.Sprintf("Vulnerability Stats for Namespace '%s'", params.Namespace)
+	if params.Namespace == "" {
+		title = "Cluster-Wide Vulnerability Stats"
+	}
+
+	sb.WriteString(fmt.Sprintf("%s:\n", title))
+	// We ALWAYS include the Namespace column for consistency
+	sb.WriteString("| Namespace | Workload | Critical | High | Medium |\n")
+	sb.WriteString("|---|---|---|---|---|\n")
+
+	if len(workloadVulns) == 0 {
+		zap.L().Error("No vulnerable workloads found.", zap.String("tool", "getVulnerabilityStats"))
+		return nil, nil, err
+	}
+
+	for name, stats := range workloadVulns {
+		// name key is "ns/workload", split to get clear name
+		parts := strings.Split(name, "/")
+		shortName := parts[1]
+
+		// Only show affected workloads
+		if stats.Critical > 0 || stats.High > 0 || stats.Medium > 0 {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %d |\n", stats.Namespace, shortName, stats.Critical, stats.High, stats.Medium))
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
 	}, nil, nil
 }
 

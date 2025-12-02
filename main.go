@@ -139,6 +139,21 @@ func main() {
 		cve_id (string, optional): Check for a specific CVE ID (e.g., "CVE-2023-1234").`,
 	}, tools.GetVulnerabilityList)
 
+	mcp.AddTool(mcpServer, &mcp.Tool{
+		Name: "getVulnerabilityStats",
+		Description: `Returns a table of vulnerable workloads and their risk counts (Critical/High/Medium).
+        Can scan a specific namespace OR the entire cluster.
+        
+        Use this when the user asks:
+        - "Which workloads are affected?" (scans all)
+        - "Show me vulnerabilities in the default namespace" (scans namespace)
+        - "Give me a security report for the cluster" (scans all)
+        
+        Parameters:
+        cluster (string, required): The cluster name.
+        namespace (string, optional): The namespace to scan. If OMITTED or EMPTY, scans the entire cluster.`,
+	}, tools.GetVulnerabilityStats)
+
 	handler := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{})
