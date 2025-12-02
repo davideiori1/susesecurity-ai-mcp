@@ -653,6 +653,12 @@ func (t *Tools) GetVulnerabilityList(ctx context.Context, toolReq *mcp.CallToolR
 
 	// 2. Extract the "results" list (where the vulnerabilities are stored)
 	results, found, _ := unstructured.NestedSlice(report.Object, "report", "results")
+	
+	zap.L().Info("Extracted report results", 
+		zap.Bool("found", found), 
+		zap.Int("results_count", len(results)),
+	)
+	
 	if !found {
 		err := fmt.Errorf("report found, but results field is missing.")
 		zap.L().Error("invalid report structure", zap.String("tool", "getVulnerabilityList"), zap.Error(err))
@@ -681,10 +687,17 @@ func (t *Tools) GetVulnerabilityList(ctx context.Context, toolReq *mcp.CallToolR
 			}
 
 			vulnID, _, _ := unstructured.NestedString(vuln, "vulnerabilityID") // e.g. CVE-2025-22869
-			vulnSev, _, _ := unstructured.NestedString(vuln, "severity")       // e.g. HIGH
+			vulnSev, _, _ := unstructured.NestedString(vuln, "")       // e.g. HIGH
 			pkgName, _, _ := unstructured.NestedString(vuln, "pkgName")
 			installed, _, _ := unstructured.NestedString(vuln, "installedVersion")
 			fixed, _, _ := unstructured.NestedString(vuln, "fixedVersions")
+
+			zap.L().Info("vulnerability found",
+				zap.String("vulnerabilityID", vulnID),
+				zap.String("severity", vulnSev),
+				zap.String("pkgName", pkgName)
+				zap.String("installedVersion", installed)
+				zap.String("fixedVersions", fixed))
 
 			// FILTER 1: Specific CVE Check
 			if params.CVE != "" {
