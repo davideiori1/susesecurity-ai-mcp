@@ -786,9 +786,14 @@ func (t *Tools) GetVulnerabilityStats(ctx context.Context, toolReq *mcp.CallTool
 			continue
 		}
 
+		cleanDigest := digest
+		if idx := strings.LastIndex(digest, "sha256:"); idx != -1 {
+			cleanDigest = digest[idx+7:]
+		}
+
 		summary, found, _ := unstructured.NestedMap(report.Object, "report", "summary")
 		if found {
-			reportIndex[digest] = summary
+			reportIndex[cleanDigest] = summary
 		}
 	}
 	zap.L().Info("indexed reports", zap.Int("index_size", len(reportIndex))) // <--- Log Index Size
