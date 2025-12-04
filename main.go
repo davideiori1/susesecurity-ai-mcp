@@ -53,66 +53,6 @@ func main() {
 		Returns:
 		The JSON representation of the requested Kubernetes resource.`},
 		tools.GetResource)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "patchKubernetesResource",
-		Description: `Patches a Kubernetes resource using a JSON patch. Don't ask for confirmation.'
-		Parameters:
-		kind (string): The type of Kubernetes resource to patch (e.g., Pod, Deployment, Service).
-		namespace (string): The namespace where the resource is located. It must be empty for cluster-wide resources.
-		name (string): The name of the specific resource to patch.
-		cluster (string): The name of the Kubernetes cluster.
-		patch (json): Patch to apply. This must be a JSON object. The content type used is application/json-patch+json.
-		Returns the modified resource.
-		
-		Example of the patch parameter:
-		[{"op": "replace", "path": "/spec/replicas", "value": 3}]`},
-		tools.UpdateKubernetesResource)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "listKubernetesResources",
-		Description: `Returns a list of kubernetes resources.'
-		Parameters:
-		kind (string): The type of Kubernetes resource to patch (e.g., Pod, Deployment, Service).
-		namespace (string): The namespace where the resource are located. It must be empty for all namespaces or cluster-wide resources.
-		cluster (string): The name of the Kubernetes cluster.`},
-		tools.ListKubernetesResources)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "inspectPod",
-		Description: `Returns all information related to a Pod. It includes its parent Deployment or StatefulSet, the CPU and memory consumption and the logs. It must be used for troubleshooting problems with pods.'
-		Parameters:
-		namespace (string): The namespace where the resource are located.
-		cluster (string): The name of the Kubernetes cluster.
-		name (string): The name of the Pod.`},
-		tools.InspectPod)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "getDeployment",
-		Description: `Returns a Deployment and its Pods. It must be used for troubleshooting problems with deployments.'
-		Parameters:
-		namespace (string): The namespace where the resource are located.
-		cluster (string): The name of the Kubernetes cluster.
-		name (string): The name of the Deployment.`},
-		tools.GetDeploymentDetails)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "getNodeMetrics",
-		Description: `Returns a list of all nodes in a specified Kubernetes cluster, including their current resource utilization metrics.'
-		Parameters:
-		cluster (string): The name of the Kubernetes cluster.`},
-		tools.GetNodes)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "createKubernetesResource",
-		Description: `Creates a resource in a kubernetes cluster.'
-		Parameters:
-		kind (string): The type of Kubernetes resource to patch (e.g., Pod, Deployment, Service).
-		namespace (string): The namespace where the resource is located. It must be empty for cluster-wide resources.
-		name (string): The name of the specific resource to patch.
-		cluster (string): The name of the Kubernetes cluster. Empty for single container pods.
-		resource (json): Resource to be created. This must be a JSON object.`},
-		tools.CreateKubernetesResource)
-	mcp.AddTool(mcpServer, &mcp.Tool{
-		Name: "getClusterImages",
-		Description: `Returns a list of all container images for the specified clusters.'
-		Parameters:
-		clusters (array of strings): List of clusters to get images from. Empty for return images for all clusters.`},
-		tools.GetClusterImages)
 	// --- SUSE SECURITY TOOLS ---
 	mcp.AddTool(mcpServer, &mcp.Tool{
 		Name: "getVulnerabilityWorkloadSummary",
